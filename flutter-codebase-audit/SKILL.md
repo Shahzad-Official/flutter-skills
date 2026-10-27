@@ -1,58 +1,54 @@
 ---
 name: flutter-codebase-audit
-description: Use when reviewing, auditing, or doing a senior-level code review of an existing Flutter/Dart codebase or repository — including phrases like "audit this repo", "review this Flutter project", "is this code production-ready", "find issues in this codebase", or "what would a senior dev flag here". Produces a prioritized, actionable report rather than scattered comments.
+description: Review Flutter or Dart code for concrete security, correctness, async/state, performance, and maintainability issues. Use for audits and production-readiness reviews; implement fixes when the user also asks to fix them.
+metadata:
+  last-reviewed: '2026-10-28'
 ---
 
 # Flutter Codebase Audit
 
-A repeatable senior-dev-level review process for existing Flutter codebases. Goal: surface real risks (bugs, security, performance, maintainability) in priority order — not style nitpicks.
+Find demonstrated risks, including small user-visible defects. Review-only requests produce findings; audit-and-fix requests include scoped implementation and checking affected callers. Do not stop at a report when fixes are authorized.
 
-## How It Works
+Do not launch apps, servers, emulators, or device sessions unless explicitly requested. Focused static checks/tests are allowed subject to project instructions. Finish with physical-device verification steps and checks not performed.
 
-1. **Map the repo first** — before judging anything, understand structure:
-   - Folder structure (feature-first vs layer-first vs flat)
-   - State management approach in use (Bloc, Riverpod, Provider, GetX, setState)
-   - Navigation approach (Navigator 1.0, go_router, auto_route)
-   - DI approach (get_it, riverpod providers, manual)
-   - Backend integration pattern (REST client, Firebase SDK direct calls, repository layer)
-   - Read `pubspec.yaml` to understand the real dependency footprint and Dart/Flutter SDK constraints
+## Map before judging
 
-2. **Check separation of concerns**
-   - Are widgets doing business logic / API calls directly inside `build()` or button callbacks?
-   - Is there a repository/data layer, or are Firestore/Dio calls scattered across UI files?
-   - Are models doing serialization themselves, or is that leaking into UI/business logic?
+Read project instructions, SDK constraints, pubspec/lockfile, analyzer configuration, tests, and representative features. Identify navigation, state owners, DI lifetimes, backend boundaries, caches, and sessions. Assess actual contracts rather than imposing `flutter-architecture` on existing apps.
 
-3. **Scan for known Flutter risk patterns** (see `references/flutter-checklist.md` for the full list) — prioritize:
-   - Memory leaks: undisposed `AnimationController`, `StreamSubscription`, `TextEditingController`
-   - `setState` after dispose / unmounted widget errors
-   - Missing `const` constructors causing avoidable rebuilds
-   - Unbounded rebuilds: whole-screen `Consumer`/`BlocBuilder` instead of scoped widgets
-   - Hardcoded API keys, Stripe secret keys, or Firebase service account data committed in code
-   - No error/loading/empty state handling on async UI (sealed/freezed state classes missing)
-   - Null-safety footguns: excessive `!` bang operators instead of proper null handling
-   - God widgets/files (500+ line widgets, files mixing 3+ responsibilities)
+For cross-module/security tracing, follow the user's code-intelligence instructions when present. Verify navigation hints against source; do not silently create an index.
 
-4. **Check testability and test coverage**
-   - Is business logic (Blocs/Cubits/notifiers, repositories, use cases) unit-testable in isolation, or tightly coupled to Flutter widgets/BuildContext?
-   - Run `flutter test --coverage` if a test suite exists; note critical paths (payments, auth, data sync) with zero coverage
-   - Flag any business logic that can't be tested without spinning up a widget tree
+## Trace behavior and interleavings
 
-5. **Check performance basics**
-   - `ListView.builder`/`GridView.builder` used for long lists, not `ListView(children: [...])`
-   - Images: are they sized/cached (`cached_network_image`) or loaded raw and full-resolution?
-   - Heavy work (JSON parsing, image processing) on the main thread vs `compute()`/isolates
+Read the relevant sections of [the checklist](references/flutter-checklist.md). Trace each trigger through state owner, repository, I/O, completion, cache write, UI effect, and teardown; inspect callers too.
 
-6. **Produce the report** in this exact priority order, every time:
-   1. 🔴 Security / data-loss risks (leaked keys, unguarded payment flows, unsafe storage of tokens)
-   2. 🟠 Bugs / crash risks (memory leaks, null-safety issues, race conditions)
-   3. 🟡 Architecture/maintainability debt (god widgets, missing layering, tight coupling)
-   4. 🟢 Performance optimizations
-   5. ⚪ Style/convention nitpicks — keep this section short, link don't elaborate
+For async features in scope, explicitly consider:
 
-   For each finding: **file + line reference**, **why it matters** (1 sentence, concrete consequence not theory), **suggested fix**. Don't pad findings with generic advice — every line should be specific to what's actually in the code.
+- A starts, B starts, B finishes, A finishes: can A overwrite B's data, error, busy flag, or cache?
+- Inputs/route change, logout, account switch, close/dispose, or reconnect occurs while pending: can old work still write or navigate?
+- Two mutations, pagination plus refresh, or snapshot plus HTTP response overlap: can updates be lost, duplicated, or wrongly rolled back?
+- Equality, in-place mutation, provider dependencies, or builder/listener filtering hide a valid change: can the UI stay stale despite changed data?
 
-## Usage
+Use `flutter-async-state-safety` if available for deeper diagnosis/fixes. Otherwise document the timeline, intended ordering, and guard at each side-effect boundary. Mounted/isClosed checks, debounce, and transformers alone do not establish correctness.
 
-Trigger this skill, then work through the steps above against the actual repo before writing anything. Do not generate findings from memory of "common Flutter mistakes" without having actually located them in the code — every finding must point to a real file/line.
+Include small defects: stuck busy flags, nullable copyWith fields that cannot clear, repeated toasts/navigation, date boundaries, retry cursor gaps, unsafe parsing, and resources with the wrong owner. Follow evidence; do not manufacture a fixed number of findings.
 
-See `references/flutter-checklist.md` for the full pattern list to scan against.
+## Evidence and priority
+
+Every finding needs a real file/line, trigger/event order, concrete consequence, and suggested fix. Distinguish confirmed behavior from a hypothesis and name missing evidence. Never print credential values.
+
+Order by actual severity/likelihood: security/data loss, crashes/correctness (including stale state), maintainability, performance, then optional style. A small correctness bug can outrank a large architecture concern.
+
+These alone are not defects: long files, missing const/use-case/sealed state, no mocking library, public client keys, or absence of a particular image-cache package. Identify a demonstrated failure or label the point a convention suggestion. Missing coverage is a verification gap, not proof of a bug. Do not launch profiling without a request; label unmeasured performance hypotheses.
+
+## Fix and verify when authorized
+
+1. Group symptoms by root cause; fix the shared owner/boundary once. Preserve interfaces, architecture, validation, and successful behavior.
+2. For non-trivial fixes, add a focused regression failing on old behavior. Control completion order with fakes/completers, not sleeps or live services. Cosmetic changes need no artificial tests.
+3. Run narrow allowed checks. Prefer existing coverage/focused tests; use full `flutter test --coverage` when coverage analysis is relevant and permitted. Do not install packages just to make an audit appear complete.
+4. Report fixed findings, remaining findings, and verification gaps separately. Missing backend rules or untested device behavior remain unverified.
+
+Give specific manual steps and expected outcomes: repeated taps, changed filters mid-request, back navigation during load, airplane mode/reconnect, or account switch as relevant.
+
+## Maintenance
+
+Check official docs against installed SDK/package versions when semantics matter. Update guidance from verified behavior or official changes; keep personal conventions separate from correctness rules.

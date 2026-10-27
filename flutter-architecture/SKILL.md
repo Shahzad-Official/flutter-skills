@@ -1,79 +1,87 @@
 ---
 name: flutter-architecture
-description: Use when starting a new Flutter project or feature, deciding folder structure, choosing state management, setting up dependency injection, or asked to "set up the architecture", "scaffold a new feature", "structure this project", or "how should this be organized". Applies a consistent, proven architecture instead of improvising per project.
+description: Design or scaffold Flutter projects and features, layer boundaries, state management, and dependency injection. Use for architecture decisions; preserve existing project conventions unless a migration is requested.
+metadata:
+  last-reviewed: '2026-10-28'
 ---
 
-# Flutter Architecture Template
+# Flutter Architecture
 
-A single consistent architecture to apply across all Flutter client projects, so every new app/feature starts from the same proven structure instead of being designed from scratch each time.
+Use these defaults for new projects. In existing apps, read project instructions, SDK constraints, pubspec/lockfile, and a neighboring feature first. Reuse its state management, DI, serialization, error contract, and components. A feature or bug fix is not an architecture migration.
 
-## Layers (top to bottom)
+Do not launch apps, servers, emulators, or device sessions unless explicitly requested. Use focused static checks/tests when allowed; finish with physical-device verification steps and disclose checks not performed.
 
-1. **Presentation** — Widgets + state management (Bloc/Cubit or Riverpod notifiers). No direct API/Firestore calls here. Only calls into the domain layer.
-2. **Domain** — Use cases / business logic. Pure Dart, no Flutter imports. This is what unit tests target directly.
-3. **Data** — Repositories (interface + implementation) + data sources (Firestore, REST via Dio, Stripe SDK). Repository implementations depend on data sources; domain depends only on repository *interfaces*. Repository methods return `Result<T>` (see Error Handling Convention below) — never throw.
-4. **Core** — Shared utilities: error types, network client setup, constants, theming, DI setup.
+## Boundaries
 
-Dependency direction is always: Presentation → Domain → Data (interfaces only) ← Data (implementation). Never let Data or Core import from Presentation.
+- Presentation owns widgets and Bloc/Cubit or Riverpod notifiers. Keep business rules and external I/O out of widgets.
+- Domain owns pure Dart entities, repository interfaces, and use cases where business logic warrants them. No Flutter, Dio, or Firebase SDK imports.
+- Data owns repository implementations, DTO mapping, and data sources wrapping APIs, SDKs, and storage.
+- Core owns genuinely shared contracts/infrastructure. Feature code belongs inside its feature.
 
-## Folder Structure (feature-first)
+Source dependencies: `Presentation → Domain ← Data`. Repository interfaces belong in Domain; Data implements them. Domain can depend on pure-Dart Core contracts, never Flutter-dependent utilities. Data/Core must not import Presentation.
 
-```
+```text
 lib/
   core/
-    error/            # Failure/Exception types
-    network/           # Dio client, interceptors
+    error/           # AppFailure
+    result/          # Result<T>
+    network/
     constants/
     theme/
-    di/                 # get_it / riverpod provider setup
+    di/
   features/
     <feature_name>/
       data/
-        models/         # DTOs with toJson/fromJson
-        repositories/   # Repository implementation
-        datasources/    # Firestore/Dio/Stripe calls live here ONLY
+        models/
+        repositories/
+        datasources/
       domain/
-        entities/        # Plain Dart objects used by UI/logic
-        repositories/     # Abstract repository interface
-        usecases/          # One class per business operation
+        entities/
+        repositories/
+        usecases/
       presentation/
-        bloc/ (or notifiers/)
+        bloc/        # or notifiers/, following the project
         pages/
         widgets/
   app.dart
   main.dart
 ```
 
-Rule of thumb: if you're about to write a Firestore/Dio call inside a widget or a Bloc event handler directly, stop — it belongs in `datasources/`, exposed through a repository.
+Create folders when they contain real code. Use cases earn their place through business rules, orchestration, or reuse; avoid mechanical pass-through classes and duplicate DTO/entity types. Preserve equivalent boundaries in a simpler established architecture.
 
-## State Management Default
+## State and ownership
 
-- **Default to Bloc/Cubit** for anything with multi-step async flows (auth, checkout, onboarding) — explicit states are worth the boilerplate for these.
-- **Riverpod notifiers** are fine for simpler, more local UI state where Bloc's ceremony isn't worth it.
-- Never mix more than one approach within a single feature. Mixing per-project is fine; mixing per-feature isn't.
+- Default to Bloc/Cubit for new projects with multi-step async flows. Riverpod is an alternative chosen for the project, not a reason to add another state framework for a small feature.
+- Local widget state, focus, controllers, and animations can coexist with business state. Keep one owner for each business-state value.
+- Model loading/success/empty/failure explicitly. New Bloc flows default to sealed states; preserve sound existing representations such as AsyncValue or immutable status/data states.
+- Separate initial load, refresh, pagination, and submission when they can overlap. Preserve usable content during refresh failures when appropriate.
+- Keep state and nested collections immutable; equality must include fields affecting rendering.
+- Choose latest-wins, queued, ignore-duplicate, or independent behavior before adding async work. Check operation identity as well as lifecycle before publishing or persisting results. A mounted/closed check alone cannot prevent stale data.
+- Scope listeners, cache keys, and pending work to user/tenant/query. Invalidate old work on logout, account switch, and changed inputs.
 
-## Error Handling Convention
+For overlapping requests/stale state, use `flutter-async-state-safety` if available; otherwise trace starts, awaits, completions, state/cache writes, and teardown with these invariants.
 
-No `dartz`/`Either`. Use a **custom sealed `Result<T>` type** with a `fold` method that takes named callbacks — never throw raw exceptions out of repositories or use cases.
+## Error contract for new projects
 
-### `Result<T>` (core/result/result.dart)
+Preserve an established app's contract. New projects default to a custom sealed `Result<T>` and shared `AppFailure`, without adding dartz/Either. The sealed-class/pattern examples require Dart 3; do not upgrade an older SDK merely to copy this template.
+
+`core/result/result.dart`:
 
 ```dart
+import '../error/app_failure.dart';
+
 sealed class Result<T> {
   const Result();
-
   const factory Result.success(T data) = Success<T>;
   const factory Result.failure(AppFailure failure) = ResultFailure<T>;
 
   R fold<R>({
     required R Function(T data) onSuccess,
     required R Function(AppFailure failure) onFailure,
-  }) {
-    return switch (this) {
-      Success<T>(data: final data) => onSuccess(data),
-      ResultFailure<T>(failure: final failure) => onFailure(failure),
-    };
-  }
+  }) => switch (this) {
+    Success<T>(data: final data) => onSuccess(data),
+    ResultFailure<T>(failure: final failure) => onFailure(failure),
+  };
 
   bool get isSuccess => this is Success<T>;
   bool get isFailure => this is ResultFailure<T>;
@@ -90,79 +98,43 @@ final class ResultFailure<T> extends Result<T> {
 }
 ```
 
-Usage at every call site (repository, use case, Bloc) — always via `fold`, never pattern-matching ad hoc or null-checking:
+- Data sources may throw typed transport/SDK/parsing exceptions. Repositories map expected operational exceptions once into `AppFailure`; repository/use-case callers receive `Result<T>`. Do not repeatedly wrap failures or swallow programming errors with blanket catches.
+- Define the sealed `AppFailure` hierarchy in `core/error/app_failure.dart`, with a user-safe `message`. Reuse NetworkFailure, ServerFailure (optional statusCode), CacheFailure, AuthFailure, ValidationFailure, PaymentFailure, and UnknownFailure as needed. Add categories only for actionable distinctions, in the shared hierarchy.
+- Treat cancellation as superseded work rather than a visible network error. Preserve diagnostic cause/stack through existing reporting without logging secrets or exposing raw server messages.
+- Prefer named `fold(onSuccess: ..., onFailure: ...)` callbacks for consistency. Await the returned future when callbacks are async; do not silently lose their failures.
 
 ```dart
-final result = await getListingsUseCase();
-result.fold(
-  onSuccess: (listings) => emit(ListingsLoaded(listings)),
-  onFailure: (failure) => emit(ListingsError(failure.message)),
-);
-```
+// Members of the Cubit; invalidate this generation on session/input changes too.
+int _listingsGeneration = 0;
 
-### `AppFailure` — single sealed hierarchy, used app-wide
-
-One definition, in `core/error/app_failure.dart`, reused by every feature — never redefine failure types per feature.
-
-```dart
-sealed class AppFailure {
-  final String message;
-  const AppFailure(this.message);
-}
-
-final class NetworkFailure extends AppFailure {
-  const NetworkFailure([super.message = 'No internet connection']);
-}
-
-final class ServerFailure extends AppFailure {
-  final int? statusCode;
-  const ServerFailure(super.message, {this.statusCode});
-}
-
-final class CacheFailure extends AppFailure {
-  const CacheFailure([super.message = 'Local cache error']);
-}
-
-final class AuthFailure extends AppFailure {
-  const AuthFailure(super.message);
-}
-
-final class ValidationFailure extends AppFailure {
-  const ValidationFailure(super.message);
-}
-
-final class PaymentFailure extends AppFailure {
-  const PaymentFailure(super.message);
-}
-
-final class UnknownFailure extends AppFailure {
-  const UnknownFailure([super.message = 'Something went wrong']);
+Future<void> loadListings() async {
+  final generation = ++_listingsGeneration;
+  final result = await getListingsUseCase();
+  if (isClosed || generation != _listingsGeneration) return;
+  result.fold(
+    onSuccess: (listings) => emit(ListingsLoaded(listings)),
+    onFailure: (failure) => emit(ListingsError(failure.message)),
+  );
 }
 ```
 
-Rules:
-- Every data source/repository catch block maps the caught exception to one specific `AppFailure` subtype — never a bare `UnknownFailure` unless the exception genuinely doesn't match a known case.
-- Add new `AppFailure` subtypes here, in this one file, as new failure categories appear (e.g. `RateLimitFailure`). Never declare a one-off failure class inside a feature folder.
-- UI layer never sees raw exceptions — Blocs/Notifiers only ever receive `Result<T>` from use cases and `fold` it into UI state.
-- UI state itself is still modeled as a sealed class (Loading / Loaded / Error / Empty), with the `Error` state holding the `AppFailure` (or just its `message`) — never inferred from nullable fields.
+This read example guards Cubit emissions; any repository cache/persistence writes need their own identity boundary. It is not a write-cancellation or backend-idempotency mechanism.
 
-## Dependency Injection
+## DI and backend boundaries
 
-- Use `get_it` registered in `core/di/injection.dart`, with `injectable` codegen if the project is large enough to justify it.
-- Repositories and data sources are registered as singletons; use cases as factories.
+- New Bloc projects default to get_it in `core/di/injection.dart`; reuse Riverpod providers when they already own DI. Add injectable only when codegen has a concrete benefit.
+- Choose singleton/session/route/factory lifetimes by ownership. Shared clients may be singletons; user caches/listeners need reset or disposal on logout. Do not make every repository a permanent singleton.
+- Firebase/REST/Stripe calls belong behind data sources/repositories. Cloud Functions use a dedicated data source.
+- Payment amount/currency/authorization/final status are server-controlled. The client collects/confirms using server-created intents; never ship server credentials or fulfill orders based only on client callbacks.
 
-## Backend Integration Notes (Firebase/Stripe specific)
+## Scaffolding and checks
 
-- Firestore queries live in datasource classes, never inline in Blocs or widgets — makes swapping/mocking trivial for tests.
-- Stripe: client only collects payment method/confirms intents created server-side (NestJS) — client never computes charge amounts.
-- Cloud Functions calls go through a dedicated `CloudFunctionsDataSource`, not scattered `FirebaseFunctions.instance.httpsCallable(...)` calls.
+Define contracts and state transitions, then implement the required interfaces, data layer, state owner, and widgets. When TDD is requested, test each behavior before implementation; use `flutter-tdd-workflow` if available. Neither skill requires empty layers.
 
-## When Scaffolding a New Feature
+Check affected callers, imports, DI registrations, cleanup, generated-code requirements, and error paths. Report SDK/generated-code limitations honestly.
 
-1. Create the four folders (data/domain/presentation under core) even if some start nearly empty
-2. Define the domain entity and repository interface first
-3. Then the use case(s)
-4. Then the data source + repository implementation
-5. Then the Bloc/notifier
-6. Then the widgets
-7. This order matters for TDD — see the `flutter-tdd-workflow` skill, which assumes this same layering.
+## Maintenance
+
+On an upgrade request or demonstrated incompatibility, compare pinned versions with official migration notes. Record reviewed versions in the task report; update this review date only after checking the guidance. Do not upgrade packages solely because a newer release exists.
+
+Reference: [Flutter architecture recommendations](https://docs.flutter.dev/app-architecture/recommendations). The Bloc/Result/layer defaults here are personal conventions, not universal Flutter requirements.

@@ -1,54 +1,55 @@
 ---
 name: flutter-tdd-workflow
-description: Use when implementing a new feature, use case, repository, or bug fix in Flutter and the user wants test-driven development — including phrases like "build this with TDD", "write the test first", "let's TDD this feature", or any new business-logic implementation where tests should drive the code, not follow it. Enforces strict red-green-refactor instead of writing implementation first.
+description: Implement Flutter or Dart behavior with red-green-refactor when the user explicitly requests TDD or the project requires test-first development. Includes deterministic async race and stale-state regressions without imposing TDD on unrelated tasks.
+metadata:
+  last-reviewed: '2026-10-28'
 ---
 
 # Flutter TDD Workflow
 
-Enforces actual test-driven development discipline: a failing test must exist before any implementation code is written for that unit. This skill exists because agents (and devs under deadline pressure) default to writing code first and tests after — this skill blocks that shortcut.
+Apply strict test-first discipline when TDD is selected, not automatically for every feature request. Respect explicit skip-tests instructions unless higher-priority rules require tests; disclose the gap.
 
-## The Loop (non-negotiable order)
+Do not launch apps, servers, emulators, or device sessions without an explicit request. Focused unit/widget tests and static checks may run when allowed. Do not start a backend emulator just to satisfy tests; use deterministic fakes or explain the integration gap.
 
-For every new unit of behavior (a use case, a repository method, a Bloc event handler):
+## Red → green → refactor
 
-1. **Red** — Write the test first, for the smallest piece of behavior. Run it. Confirm it fails, and confirm it fails *for the expected reason* (e.g. "method doesn't exist" or "returns null" — not a typo/import error).
-2. **Green** — Write the *minimum* code to make that test pass. Resist adding anything not demanded by the test yet.
-3. **Refactor** — With the test passing, clean up naming/structure. Re-run the test after every refactor step to confirm it still passes.
-4. Repeat for the next smallest piece of behavior.
+1. Read the contract, callers, and existing tests. Write the smallest behavior test before implementation.
+2. Run it and establish the intended failure. A missing new API can initially fail compilation; fix unrelated import/setup problems and use a minimal skeleton to reach a behavior assertion where possible. An accidental compile error is not a reproduced bug.
+3. Implement the smallest correct fix, preserving error handling and integrity boundaries. Run the focused test.
+4. Refactor while green. Verify a regression would fail on old behavior without reverting unrelated user work.
 
-Never skip to step 2. If asked to "implement X", the first action is always writing `X_test.dart`, not `x.dart`.
+If execution is blocked by SDK/dependencies/permissions, report that red/green was not observed. Never claim TDD completion from unrun tests or silently upgrade tooling.
 
-## What to Test at Each Layer
+## Choose the actual layer
 
-(Matches the layering in the `flutter-architecture` skill.)
+- Domain/business rules: test behavior against repository fakes/mocks. Do not invent use-case classes solely to fit a test template.
+- Repositories: fake/mock data sources and test mapping. Under the custom Result contract, sources may throw; repositories return ResultFailure. Example: `returns AuthFailure when the data source reports 401`.
+- Bloc/Cubit: reuse project testing tools, including bloc_test when installed. Assert meaningful state sequences/final data and control pending work.
+- Riverpod: fresh container per test, dependency overrides, and a listener keeping auto-disposed providers alive while exercising pending work. Use ProviderContainer.test only when supported by the pinned version; otherwise create/dispose explicitly. Prefer observable behavior over mocking notifier internals.
+- Widgets: test important interactions, navigation effects, focus/semantics, and recovery UI. UI-only behavior can start with a widget test; other layers need not be exhausted first.
 
-- **Domain/use cases**: pure unit tests, no widget tree needed. Mock the repository interface with `mocktail`. This is where most TDD value lives — fast, no Flutter bindings required.
-- **Repositories**: unit test against mocked data sources (mock Dio/Firestore calls). Test both the `Success` path and the `ResultFailure` path — assert the correct `AppFailure` subtype is returned for each exception case (e.g. `DioException` timeout → `NetworkFailure`, 401 response → `AuthFailure`).
-- **Bloc/Cubit**: use `bloc_test` package — given a state, when an event is added, expect this sequence of states. Mock the use case, not the repository, at this layer.
-- **Widgets**: `flutter_test` + `WidgetTester`, test behavior (tap → state change → rendered text) not implementation details. These come *last*, after logic underneath is already covered.
+Reuse installed test tools. Mocktail is a new-project preference when mocking helps, not a reason to replace existing mockito/fakes or add dependencies for simple doubles. Mirror relevant lib paths; name tests by behavior.
 
-## Test File Conventions
+## Deterministic async regressions
 
-- Mirror the lib/ structure: `test/features/<feature>/domain/usecases/get_listings_test.dart` etc.
-- One test file per class being tested.
-- Use `mocktail` for mocking (preferred over `mockito` — no codegen needed).
-- Group tests with `group('GetListingsUseCase', () { ... })`, one `test()` per behavior/edge case, named as a sentence: `test('returns Failure when repository throws', () { ... })`.
+Use completers, controlled stream controllers, and existing fake-clock utilities. Avoid arbitrary sleeps/live services and pumpAndSettle against intentionally unresolved work. Advance only to the required checkpoint.
 
-## Order of Implementation for a New Feature (TDD-driven)
+Select the cases relevant to the fix:
 
-1. Write failing test for the use case (mocking the repository interface) → implement use case
-2. Write failing test for repository implementation (mocking the data source) → implement repository
-3. Write failing test for the data source if it has any logic beyond a raw API call (e.g. response mapping) → implement
-4. Write failing bloc_test for the Bloc/Cubit (mocking the use case) → implement Bloc
-5. Only then build widgets/UI, with widget tests for key interactions
+- Start A then B; finish B then A. B must remain current after A succeeds or fails, including busy/error/cache state.
+- Dispose, change query, or change user while pending; old completions must not emit, persist stale data, restore credentials, or navigate.
+- Overlap refresh/pagination or optimistic mutations; verify stable identity, cursor ownership, and version-aware rollback.
+- Several requests need token refresh; assert one refresh per session generation, bounded replay, and no session restoration after logout.
+- Clear nullable state or update nested data through public behavior; assert the correct immutable value reaches listeners/UI.
 
-## Definition of Done for a Unit
+Use `flutter-async-state-safety` if available for deeper scenario selection. Test the necessary invariant, not every permutation for every class. Teardown must resolve/cancel owned work and release resources.
 
-A unit (use case/repository method/bloc handler) is not done until:
-- A test existed and failed before the implementation did
-- The test passes after implementation, for the right reason
-- Edge cases are covered: empty data, network failure, malformed response, unauthorized/expired token (where relevant)
+## Completion
 
-## When the User Says "Just Build It Fast, Skip Tests"
+Report the observed red/green result, focused checks, and gaps. Cover empty/error/malformed/unauthorized cases where the changed behavior handles them, without irrelevant tests for pass-through code.
 
-Acknowledge the trade-off plainly and proceed without enforcing this skill for that specific task — don't argue, just don't silently apply TDD discipline against an explicit instruction to skip it.
+End with feature-specific physical-device steps and expected outcomes. Manual device checks supplement deterministic regressions.
+
+## Maintenance
+
+Check helpers against the project's locked versions. Reference: [Riverpod testing](https://riverpod.dev/docs/how_to/testing). Update for verified breaking changes without forcing package upgrades.

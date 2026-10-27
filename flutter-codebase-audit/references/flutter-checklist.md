@@ -1,40 +1,51 @@
-# Flutter Audit Checklist (reference)
+# Flutter Audit Checklist
 
-Loaded on demand by flutter-codebase-audit. Use as a scan list, not a script to read aloud.
+Use relevant sections as hypotheses to verify against source and reachable paths. Pattern matches alone are not findings.
 
-## Security
-- API keys, Stripe secret keys, Firebase service-account JSON, or Agora app certificates hardcoded in Dart files
-- `.env` files or secrets committed to git history (check `.gitignore`)
-- Tokens/credentials stored in plain `SharedPreferences` instead of `flutter_secure_storage`
-- Firestore/Realtime DB rules not reviewed alongside client code that assumes server-side validation
-- Stripe payment flow trusting client-calculated amounts instead of server-confirmed amounts
+## Security and integrity
 
-## Crash / correctness risks
-- `StreamSubscription`, `AnimationController`, `TextEditingController`, `ScrollController` not disposed in `dispose()`
-- `setState()` or `context` used after async gap without `if (mounted)` check
-- Force-unwrap (`!`) on nullable values from API responses without a null-check path
-- `late` variables that can plausibly be accessed before initialization
-- Catch blocks that swallow errors silently (`catch (e) {}`) with no logging/reporting
-- Repository/data source methods that throw instead of returning `Result<T>` (per the `flutter-architecture` skill's error convention)
-- New failure classes declared inside a feature folder instead of added to the single app-wide `AppFailure` hierarchy in `core/error/`
-- Race conditions in concurrent Firestore writes or optimistic UI updates without rollback
+- Server secrets, service accounts, payment secret keys, signing credentials in source/history/build assets; redact values. Gitignore does not prove a secret was never committed.
+- Distinguish public client identifiers from credentials. Firebase client keys are generally public; check restrictions, Security Rules, and App Check instead of flagging their mere existence.
+- Sensitive token storage/backup exposure, credentials or personal data in logs/analytics, stale authorization headers after logout.
+- Server ownership/field validation; hidden UI or query filters are not access control.
+- Client-controlled payment amounts, unsafe write retries, fulfillment based only on a client callback.
+- User/tenant data retained in shared caches, queued work, deep links, or resumed sessions after account changes.
 
-## Architecture / maintainability
-- Widgets directly calling Firestore/Dio/Stripe instead of going through a repository layer
-- No clear boundary between data models (DTOs) and domain/UI models
-- Business logic embedded inside widget callbacks instead of Bloc/Cubit/Notifier
-- Files exceeding ~400-500 lines or widgets nested 5+ levels with inline logic
-- Inconsistent state management approach across features (mixing setState, Provider, Bloc randomly)
-- Magic strings/numbers for Firestore collection names, route names, API endpoints instead of constants
+## Races and stale state
 
-## Performance
-- `ListView`/`Column` with unbounded children instead of `.builder` constructors
-- Missing `const` on widgets that never change
-- Whole-screen rebuild via top-level `BlocBuilder`/`Consumer` instead of scoped builders
-- Unoptimized images (no `cacheWidth`/`cacheHeight`, no `cached_network_image`)
-- Heavy JSON parsing or image manipulation on the UI thread instead of `compute()`
+- Older successes, errors, cache writes, or finally blocks overwrite newer work. Guards must cover side-effect boundaries.
+- Debounce/handler cancellation without stale-result suppression or transport cancellation; client cancellation does not undo server writes.
+- Bloc transformers cover one event registration while different types mutate shared state; Cubit methods overlap without event transformers.
+- Pre-await snapshots restored after await, losing unrelated fields changed meanwhile.
+- Concurrent token refreshes or refresh completion after logout restore retired credentials.
+- Pagination races refresh/filter changes: duplicate items, stale cursors, skipped retries, or missing stable IDs.
+- Failed optimistic mutation A rolls back successful B; local serialization assumed to protect multi-device writes.
+- In-place nested mutation, incomplete equality, shallow copies, nullable copyWith fields that cannot explicitly clear.
+- ref.read used where reactive dependencies are needed, incomplete family/cache keys, stale closures, buildWhen/listenWhen/select suppressing necessary updates.
+- Duplicate timers/listeners, subscriptions not replaced when IDs change, navigation/toasts repeated from persistent states.
 
-## Testability
-- Business logic (Cubit/Bloc/Notifier, repositories, use-cases) requiring `BuildContext` or widget tree to test
-- Zero tests on payment, auth, or data-sync logic specifically
-- No mocking layer (mocktail/mockito) around Firebase/Dio dependencies, making unit tests impossible without network
+## Lifecycle and correctness
+
+- Controllers/subscriptions/focus nodes/timers not released by their owner, or shared clients closed by a borrower.
+- BuildContext/navigation/setState after await without checking that exact State/context lifetime; checking a different context is insufficient.
+- Work completes after Bloc close/provider disposal; async callbacks or fire-and-forget futures lose failures.
+- Busy flags remain stuck, or old completions clear them while newer work is pending.
+- Unsafe unwraps/casts, missing JSON fields, invalid numbers/dates, reachable uninitialized late fields.
+- Swallowed errors, raw server messages in UI, expected failures escaping the established repository contract. Data-source exceptions may be intentional.
+- Timezone/DST/timestamp-unit mistakes, missing validation, numeric precision assumptions in money, duplicate submissions, empty/null conflation.
+
+## Architecture and tests
+
+- I/O in build/repeated on rebuild, hidden global dependencies, business rules coupled to widget lifetimes, DI/session scope leaks.
+- Model boundaries causing concrete serialization/mutation bugs; duplicate DTO/entity types are not automatically required.
+- Untested auth/payment/sync behavior. Fakes/manual injection/mocks are valid; a missing mocking package does not prove untestability.
+- Real services or sleeps in ordering tests, shared provider/test state, tests mirroring implementation instead of behavior.
+
+## UI and performance
+
+- Unbounded scroll/layout constraints, keyboard-hidden actions, small-screen overflow, text-scale/RTL/focus/semantics failures.
+- Missing recovery UI, or refresh errors unnecessarily discarding useful content.
+- Large eager lists, unnecessarily large decoded images, repeated I/O/work in builders, or demonstrated excessive rebuilds. Short eager lists can be fine.
+- Heavy parsing/work blocks interaction. Isolates/caching packages/const are contextual options, not unconditional requirements.
+
+References: [Firebase API keys](https://firebase.google.com/docs/projects/api-keys), [BuildContext across async gaps](https://dart.dev/tools/linter-rules/use_build_context_synchronously).
