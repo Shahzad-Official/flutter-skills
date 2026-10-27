@@ -1,5 +1,6 @@
 ---
 name: flutter-async-state-safety
+license: MIT
 description: Diagnose and fix Flutter/Dart race conditions, stale UI or caches, overlapping requests, optimistic updates, and lifecycle bugs in Bloc, Cubit, Riverpod, or widget state. Use when async ordering or state ownership is implicated, including during an audit-and-fix task.
 metadata:
   last-reviewed: '2026-10-28'

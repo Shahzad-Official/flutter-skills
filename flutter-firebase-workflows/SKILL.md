@@ -1,5 +1,6 @@
 ---
 name: flutter-firebase-workflows
+license: MIT
 description: Implement or fix Flutter Firebase Auth, Firestore, Storage, and callable-function behavior, including rules boundaries, listener lifetimes, offline data, and concurrent writes. Apply only when the project actually uses Firebase.
 metadata:
   last-reviewed: '2026-10-28'

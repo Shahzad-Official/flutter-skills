@@ -1,5 +1,6 @@
 ---
 name: flutter-ui-quality
+license: MIT
 description: Build or fix Flutter screen behavior, responsive layouts, forms, keyboard/focus handling, accessibility, localization, and loading/error/empty states. Use for UI work and concrete UI defects, reusing the app's design system.
 metadata:
   last-reviewed: '2026-10-28'

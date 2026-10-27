@@ -1,5 +1,6 @@
 ---
 name: flutter-codebase-audit
+license: MIT
 description: Review Flutter or Dart code for concrete security, correctness, async/state, performance, and maintainability issues. Use for audits and production-readiness reviews; implement fixes when the user also asks to fix them.
 metadata:
   last-reviewed: '2026-10-28'

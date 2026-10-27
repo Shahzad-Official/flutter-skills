@@ -1,5 +1,6 @@
 ---
 name: flutter-architecture
+license: MIT
 description: Design or scaffold Flutter projects and features, layer boundaries, state management, and dependency injection. Use for architecture decisions; preserve existing project conventions unless a migration is requested.
 metadata:
   last-reviewed: '2026-10-28'
@@ -18,10 +19,13 @@ Do not launch apps, servers, emulators, or device sessions unless explicitly req
 - Data owns repository implementations, DTO mapping, and data sources wrapping APIs, SDKs, and storage.
 - Core owns genuinely shared contracts/infrastructure. Feature code belongs inside its feature.
 
-Source dependencies: `Presentation → Domain ← Data`. Repository interfaces belong in Domain; Data implements them. Domain can depend on pure-Dart Core contracts, never Flutter-dependent utilities. Data/Core must not import Presentation.
+Source dependencies for application logic: `Presentation → Domain ← Data`. Repository interfaces belong in Domain; Data implements them. Domain can depend on pure-Dart Core contracts, never Flutter-dependent utilities. Data and shared Core infrastructure must not import Presentation. Composition-only DI modules are the explicit exception: they may import concrete implementations and presentation state owners to wire dependencies, without containing business logic.
 
 ```text
 lib/
+  app/
+    di/
+      injection.dart # app composition root: coordinates registrations
   core/
     error/           # AppFailure
     result/          # Result<T>
@@ -29,8 +33,11 @@ lib/
     constants/
     theme/
     di/
+      core_module.dart # shared infrastructure registrations only
   features/
     <feature_name>/
+      di/
+        feature_module.dart # this feature's registrations
       data/
         models/
         repositories/
@@ -122,8 +129,18 @@ This read example guards Cubit emissions; any repository cache/persistence write
 
 ## DI and backend boundaries
 
-- New Bloc projects default to get_it in `core/di/injection.dart`; reuse Riverpod providers when they already own DI. Add injectable only when codegen has a concrete benefit.
-- Choose singleton/session/route/factory lifetimes by ownership. Shared clients may be singletons; user caches/listeners need reset or disposal on logout. Do not make every repository a permanent singleton.
+### App composition and feature-level DI
+
+- New Bloc projects default to get_it with an app composition root in `app/di/injection.dart`. It coordinates shared registrations from `core/di/core_module.dart` and each feature's `features/<feature>/di/<feature>_module.dart`. Register dependencies in the required order and complete necessary async initialization before resolving consumers.
+- Each feature owns registration of its data sources, repository interface-to-implementation bindings, use cases, and Bloc/Cubit factories. Its DI module may import that feature's Data, Domain, and Presentation types for wiring. Keep business logic out of registration files and inject dependencies into the classes being constructed.
+- `core/di` registers shared infrastructure; it does not become a registry of feature state owners. App/feature DI modules sit outside the business-layer dependency direction. Domain, data sources, and repositories must not import those modules or resolve their own dependencies from a global locator. Feature modules must not call each other to build hidden dependency cycles; app composition coordinates shared contracts.
+- Existing projects may keep their composition root at `core/di/injection.dart` or another established location. Mark that file (and any dedicated composition-only helpers) as wiring code allowed to import feature modules or presentation state owners. This exception does not permit ordinary Core/Data code to depend on Presentation; do not move files solely to match the new-project template.
+- Feature-level registration is code organization, not a requirement for an independent container per feature. Reuse the app locator; add session/route scopes only when ownership requires them. Register each binding once per intended scope and release that scope's owned resources when it ends.
+- Choose singleton/session/route/factory lifetimes by ownership. Shared clients may be singletons; user caches/listeners need reset or disposal on logout, with old async work invalidated before it can repopulate them. Route-owned Blocs/Cubits usually use factories. `BlocProvider(create: ...)` owns closing a newly created instance; `BlocProvider.value` does not own closing an existing one. Avoid shared instances closed by a borrower or duplicate disposal by DI and UI.
+- Reuse Riverpod providers when they already own DI; preserve their feature organization and lifetimes instead of adding a get_it container beside them. Add injectable only when codegen has a concrete benefit.
+
+### Backend boundaries
+
 - Firebase/REST/Stripe calls belong behind data sources/repositories. Cloud Functions use a dedicated data source.
 - Payment amount/currency/authorization/final status are server-controlled. The client collects/confirms using server-created intents; never ship server credentials or fulfill orders based only on client callbacks.
 
@@ -131,10 +148,12 @@ This read example guards Cubit emissions; any repository cache/persistence write
 
 Define contracts and state transitions, then implement the required interfaces, data layer, state owner, and widgets. When TDD is requested, test each behavior before implementation; use `flutter-tdd-workflow` if available. Neither skill requires empty layers.
 
-Check affected callers, imports, DI registrations, cleanup, generated-code requirements, and error paths. Report SDK/generated-code limitations honestly.
+Check affected callers, imports, the app root's feature registration calls, duplicate/missing bindings, dependency readiness, ownership/disposal, generated-code requirements, and error paths. Report SDK/generated-code limitations honestly.
 
 ## Maintenance
 
 On an upgrade request or demonstrated incompatibility, compare pinned versions with official migration notes. Record reviewed versions in the task report; update this review date only after checking the guidance. Do not upgrade packages solely because a newer release exists.
 
 Reference: [Flutter architecture recommendations](https://docs.flutter.dev/app-architecture/recommendations). The Bloc/Result/layer defaults here are personal conventions, not universal Flutter requirements.
+
+DI API references: [get_it registrations and scopes](https://pub.dev/packages/get_it), [BlocProvider ownership](https://pub.dev/documentation/flutter_bloc/latest/flutter_bloc/BlocProvider-class.html). Check the project's pinned versions; the module layout above is a personal organization preference.

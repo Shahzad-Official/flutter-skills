@@ -1,5 +1,6 @@
 ---
 name: flutter-release-readiness
+license: MIT
 description: Review or prepare Flutter Android/iOS release configuration, flavors, permissions, signing references, and device verification. Use for release/build readiness work, not as a mandatory checklist for every feature edit.
 metadata:
   last-reviewed: '2026-10-28'

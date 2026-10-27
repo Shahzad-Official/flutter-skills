@@ -37,6 +37,7 @@ Use relevant sections as hypotheses to verify against source and reachable paths
 ## Architecture and tests
 
 - I/O in build/repeated on rebuild, hidden global dependencies, business rules coupled to widget lifetimes, DI/session scope leaks.
+- App/feature DI modules may import concrete Data/Presentation types for composition; this alone is not a layering defect. Inspect business classes depending on wiring modules, missing/duplicate feature registrations, unresolved async initialization, circular dependencies, and resources disposed by the wrong owner. An existing composition root under core/di is valid when its wiring role is explicit.
 - Model boundaries causing concrete serialization/mutation bugs; duplicate DTO/entity types are not automatically required.
 - Untested auth/payment/sync behavior. Fakes/manual injection/mocks are valid; a missing mocking package does not prove untestability.
 - Real services or sleeps in ordering tests, shared provider/test state, tests mirroring implementation instead of behavior.

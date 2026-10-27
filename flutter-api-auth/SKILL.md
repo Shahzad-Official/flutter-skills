@@ -1,5 +1,6 @@
 ---
 name: flutter-api-auth
+license: MIT
 description: Implement or fix Flutter REST/API integration, authentication sessions, token refresh, request retries, cancellation, pagination, and cache isolation. Use for network/session behavior; preserve the project's HTTP client and auth provider.
 metadata:
   last-reviewed: '2026-10-28'

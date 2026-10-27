@@ -20,6 +20,7 @@ Have an improvement in mind? [Contributions and feedback are welcome](#contribut
 - [How review and verification should work](#how-review-and-verification-should-work)
 - [Keeping the collection current](#keeping-the-collection-current)
 - [Contributing](#contributing)
+- [License](#license)
 
 ## What these skills target
 
@@ -39,9 +40,13 @@ For new projects, I prefer a feature-first structure with clear responsibilities
 
 ```text
 lib/
-  core/                    # shared contracts, networking, theme, DI
+  app/
+    di/injection.dart      # app composition root
+  core/                    # shared contracts, networking, theme
+    di/core_module.dart    # shared infrastructure registrations
   features/
     auth/
+      di/auth_module.dart  # feature-owned registrations
       data/                # data sources, DTOs, repository implementations
       domain/              # entities, repository interfaces, business rules
       presentation/        # screens, widgets, state management
@@ -51,12 +56,14 @@ lib/
 
 The source dependency direction is `Presentation → Domain ← Data`. Use cases and separate models should earn their place; a small feature does not need empty folders or layers that only forward calls.
 
+DI wiring sits outside that business-layer dependency direction. Each feature registers its own dependencies; the app composition root coordinates those modules and shared infrastructure. Wiring modules can import the concrete classes they construct, including Blocs/Cubits. This does not allow ordinary Domain/Data/Core infrastructure to depend on Presentation. Existing projects can keep a clearly identified composition root under `core/di`; relocating it is not required. Feature modules can share one app locator, with lifetimes/scopes chosen by ownership.
+
 | Area | My default |
 | --- | --- |
 | State management | Bloc/Cubit for new multi-step async flows; Riverpod is an alternative when chosen for the project. |
 | Local UI state | Keep focus, animations, controllers, and simple widget state local where appropriate. |
 | Error handling | A custom sealed `Result<T>` and shared `AppFailure` hierarchy for new projects. The examples require Dart 3. |
-| Dependency injection | `get_it` for new Bloc projects; existing Riverpod DI stays in place. |
+| Dependency injection | `get_it` with feature-owned registrations and app-level composition for new Bloc projects; existing Riverpod DI stays in place. |
 | Backend access | Keep external I/O behind data sources and repositories. Use Firebase only where the app actually uses it. |
 | Existing apps | Reuse established components, dependencies, interfaces, and sound conventions. Migrations are separate work. |
 | Implementation | Prefer the smallest complete fix, with validation and data integrity preserved. |
@@ -138,6 +145,27 @@ Keep the complete skill folder, including its `references/` directory where pres
 
 These are agent instructions, not Flutter packages. They do not belong in `pubspec.yaml` and do not add a runtime dependency to your app.
 
+### Codex: project-local installation
+
+Codex discovers repository skills in `.agents/skills`. For a first-time installation on macOS/Linux, run this from your Flutter project root after reviewing the selected skill. Replace the source path with your local clone; this example assumes the destination skill folder does not already exist. Compare any existing copy before replacing it. [Official OpenAI documentation](https://learn.chatgpt.com/docs/build-skills#where-codex-loads-local-skills)
+
+```bash
+mkdir -p .agents/skills
+cp -R "/path/to/flutter-skills/flutter-async-state-safety" .agents/skills/
+cp "/path/to/flutter-skills/LICENSE" .agents/skills/flutter-async-state-safety/LICENSE
+```
+
+The installed entrypoint is `.agents/skills/flutter-async-state-safety/SKILL.md`, with its references and license alongside it. Copy other selected skill folders the same way. For personal use across repositories, Codex also supports `~/.agents/skills`; choose the intended scope rather than installing duplicate names at both locations.
+
+Codex detects skill changes automatically; restart it if a new skill does not appear. Verify it is listed in the skill selector, then explicitly invoke it with a focused request:
+
+```text
+$flutter-async-state-safety Investigate and fix stale search results in this
+project. Preserve existing conventions and do not launch the app.
+```
+
+This documents the supported discovery layout; it does not install skills into your projects automatically. Copied skills are snapshots, so review and apply upstream changes deliberately.
+
 ## Example requests
 
 After making the relevant skills available:
@@ -210,3 +238,7 @@ For a useful report or PR:
 For a larger change to the collection's defaults or scope, an issue explaining the proposal first helps others discuss the trade-offs before implementation.
 
 If this collection is useful to you, a star or sharing it with another Flutter developer helps others find it. Thanks for trying it and helping make it better.
+
+## License
+
+This collection is licensed under the [MIT License](LICENSE). Include the license and copyright notice when redistributing the collection or individual skills.

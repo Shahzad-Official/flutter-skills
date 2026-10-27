@@ -1,5 +1,6 @@
 ---
 name: flutter-tdd-workflow
+license: MIT
 description: Implement Flutter or Dart behavior with red-green-refactor when the user explicitly requests TDD or the project requires test-first development. Includes deterministic async race and stale-state regressions without imposing TDD on unrelated tasks.
 metadata:
   last-reviewed: '2026-10-28'
